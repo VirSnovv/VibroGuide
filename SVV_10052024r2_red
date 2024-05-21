@@ -23,9 +23,18 @@ float filtr_coef = 0.01;
 
 /////////////////////////////////
 
+boolean lastReading = false;  // флаг предыдущего состояния кнопки
+boolean buttonSingle = false; // флаг состояния "краткое нажатие"
+boolean buttonMulti = false; // флаг состояния "двойное нажатие"
+bool flag = false,q = true;
+
 int bounceTime = 10;          // задержка для подавления дребезга
-int doubleTime = 500;         // время, в течение которого нажатия можно считать двойным
+int doubleTime = 1000;         // время, в течение которого нажатия можно считать двойным
 int o = 0,mode = 1;
+
+long onTime = 0;              // переменная обработки временного интервала
+long lastSwitchTime = 0;      // переменная времени предыдущего переключения состояния
+
 unsigned long timer[5] = {1, 1, 1, 1, 1}; //таймеры
 unsigned long timer_PANIC=1; //таймер для истиричной вибр раз в 5 сек
 unsigned long timer_angl_error=1; 
@@ -37,12 +46,7 @@ int memR[4] = { 4000, 4000, 4000, 4000 };
 
 SoftwareSerial mySoftwareSerial(9, 5); // RX, TX для плеера DFPlayer Mini
 DFRobotDFPlayerMini myDFPlayer;
-//boolean isPlaying = false;
-boolean lastReading = false;  // флаг предыдущего состояния кнопки
-boolean buttonSingle = false; // флаг состояния "краткое нажатие"
-boolean buttonMulti = false; // флаг состояния "двойное нажатие"
-//bool flag = false,q = true;
-
+boolean isPlaying = false;
 
 ////////////////////////////////
 
@@ -78,8 +82,9 @@ void setup() {
 }
 
 void loop() {
- //analogWrite(5, 255);//выключили вибрацию
-  gyro_data(0.2); //Гироскоп
+  button_state();
+  //analogWrite(5, 255);//выключили вибрацию
+  gyro_data(filtr_coef); //Гироскоп
   all_sensor_data_write_sruct_dev();//читаем все сенсоры
   new_Obj=object_type(v.R[0],v.R[1],v.R[2],v.R[3],0);//определяем тип объекта
   if(new_Obj == last_Obj){//верификация изменения объекта.
@@ -154,7 +159,7 @@ void int_DFP(){//Функция инициализации DFPlayer.
   }
   Serial.println(F("DFPlayer Mini online."));
   
-  myDFPlayer.volume(28);  //Set volume value. From 0 to 30
+  myDFPlayer.volume(30);  //Set volume value. From 0 to 30
   myDFPlayer.EQ(DFPLAYER_EQ_NORMAL);
   myDFPlayer.outputDevice(DFPLAYER_DEVICE_SD);
   myDFPlayer.play(8);  //0008 ассистент готов к работе, для начала использования нажмите кнопку сзади
@@ -301,9 +306,9 @@ int object_type(int R1,int R2,int R3,int R4,int Angle_nakl) {//Функция о
         return 6;   // % 6 - очень близко
     if ( (abs(v.AngleY) > 35 ) || (abs(v.AngleZ) > 35 ) ) 
       return 9;  // % 9 - неверный угол
-    if ((max(max(abs(R1 - R2), abs(R2 - R3)), abs(R3 - R4)) < 300) && (R2 < 1500))  //int maxDelta = max(max(abs(R1 - R2), abs(R2 - R3)), abs(R3 - R4))
+    if ((max(max(abs(R1 - R2), abs(R2 - R3)), max(abs(R1 - R2),abs(R1 - R4))) < 300) && (R2 < 1500))  //int maxDelta = max(max(abs(R1 - R2), abs(R2 - R3)), abs(R3 - R4))
       return 1;  // % 1 - стена
-    if (((R4 < 1200)&&(R3 < 1200)) || ((R3 < R4)&&((R3<R1)||(R1 == 4000))))
+    if (((R4 < 1000) || (R3 < 1000)) && ((R1 > R3) || (R1 > R4)))
       return 3;  // % 3 - снизу
     if (R1 < 1000)
       return 4;  // % 4 - сверху
@@ -641,4 +646,61 @@ int findMedianN_optim(int newVal, int sensNum) {//Функция медианн�
 
 
   return out;
+}
+void button_state(){
+///////////// Вход в алгоритм нажатия кнопок и выбора режима //////////////
+boolean reading = digitalRead(8);
+   // проверка первичного нажатия
+  if (reading && !lastReading){
+    onTime = millis();
+  }
+  
+  if (!reading && lastReading){
+    if (((millis() - onTime) > bounceTime)){
+      if ((millis() - lastSwitchTime) >= doubleTime){
+        lastSwitchTime = millis();
+        buttonSingle = true;
+        o=1;
+      } else {
+        o++;
+        lastSwitchTime = millis();
+        buttonSingle = false;
+        buttonMulti = true;
+      }
+    }
+  }
+  
+  lastReading = reading;
+
+  if (buttonSingle && (millis() - lastSwitchTime) > doubleTime){
+    isButtonSingle();
+  }
+  if (buttonMulti && (millis() - lastSwitchTime) > doubleTime){
+    isButtonMulti(o);
+  }
+}
+void isButtonSingle(){
+    buttonMulti = false;
+    buttonSingle = false;
+    //Serial.println(1);
+}
+void isButtonMulti( int count ){
+    buttonSingle = false;
+    buttonMulti = false;
+    //Serial.println(count);
+if (count == 2){
+  mode++;
+}
+  if(mode == 4){
+    mode = 1;
+    }
+  if (mode == 1){
+  myDFPlayer.volume(30);
+  }
+  else if (mode == 2){
+  myDFPlayer.volume(20);
+  }
+  else if (mode == 3){
+  myDFPlayer.volume(10);
+  }
 }
