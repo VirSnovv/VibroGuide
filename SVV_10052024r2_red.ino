@@ -13,13 +13,13 @@ const uint8_t xshutPins[sensorCount] = { 7, 15, 6 };//ПРИ КАЖДОМ ИЗМ
 VL53L1X sensors[sensorCount];
 NewPing sonar(10, 10, 400); // NewPing setup of pin and maximum distance.
 
-int maxDelta, R1, R2, R3, R4,last_Obj = 0,new_Obj=0,proof=0,last_note,wait = 2000;
+int maxDelta, R1, R2, R3, R4,last_Obj = 0,new_Obj=0,proof=0,last_note,wait = 2000, dt_range = 1500;
 /////////////////////////////////
 
 MPU6050 accgyro;
 int16_t ax, ay, az, gx, gy, gz;
 float accz,gyrox,anglez,anglez1,angley,angley1,anglex,anglex1; //переменные гироскопа
-float filtr_coef = 0.01;
+float filtr_coef = 0.01, dist_coef = 0;
 
 /////////////////////////////////
 
@@ -301,6 +301,8 @@ int object_type(int R1,int R2,int R3,int R4,int Angle_nakl) {//Функция о
   // %готов
   // % 9 - неверный угол
   int type=0;//по умолчанию считаем что нет препядсвия
+  int mode = mode_switch();
+  if(mode == 0){
   //int type = 0;  //по умолчанию считаем что нет препядсвия
     if (v.minR < 500 )
         return 6;   // % 6 - очень близко
@@ -316,7 +318,24 @@ int object_type(int R1,int R2,int R3,int R4,int Angle_nakl) {//Функция о
       return 5;  // % 5 - яма
     if (R2 < 1300)
         return  2;  // % 2 - по курсу
+  }
+  else{
+     //dist_coef = 11 - 0.006 * max(R1, R4) ;
+
+  
+    //if ((R1 < dt_range) && (R4 < dt_range) && (R3 > dist_coef * max(R1, R4)))
+    if (((R3 - R1) > 1000) && ((R3 - R4) > 1000) && ( max(R1, R4) < dt_range ))
+        return 0;   // % 0(10) - сквозной проход (дверь окно и т.д.) сигналимзируем как чистое пространство
+    if ((R1 < dt_range) && (R3 < dt_range) && (R4 < dt_range)) 
+      return 6;  // % 6 (11) - прохода строго нет. индикация как крайне близкое препятствие
+    if ((R3 < dt_range) && ((R3 > dt_range) || (R4 > dt_range))) 
+      return 12;  // % 12 - проход скраю зоны видимости   
+  
+  }
+        
   return type;
+
+  
 }
 
 void all_sensor_data_write_sruct_dev() {//Функция сбора показаний с датчиков и записи их в struct vibr.
@@ -703,4 +722,10 @@ if (count == 2){
   else if (mode == 3){
   myDFPlayer.volume(10);
   }
+}
+int mode_switch(){
+  if(v.AngleX < 30 && v.AngleX > -30){
+    return 1;
+  }
+  return 0;
 }
