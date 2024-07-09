@@ -87,7 +87,7 @@ void setup() {
   int_ToF();//Функция инициализации ToF датчиков.
   delay(100);
   int_DFP();//Функция инициализации DFPlayer.
-
+  power.setSleepMode(POWERDOWN_SLEEP);
 }
 
 void loop() {
@@ -771,7 +771,7 @@ void device_sleep() {
   }
   else if ((millis() - timer[4]) > sleep_time) {
     attachInterrupt(1, isr, FALLING);
-    power.setSleepMode(POWERDOWN_SLEEP);
+    power.sleep(SLEEP_FOREVER);
     detachInterrupt(1);
   }
 
