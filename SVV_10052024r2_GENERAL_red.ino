@@ -332,6 +332,9 @@ int object_type(int R1, int R2, int R3, int R4, int Angle_nakl) { //Функци
   }
   else {
     //dist_coef = 11 - 0.006 * max(R1, R4) ;
+    //if ((R1 < dt_range) && (R4 < dt_range) && (R3 > dist_coef * max(R1, R4)))
+    if ((((R1 < 1000) or ( R4 < 1000)) and ((R2 > 1500) or (R3 > 1500))) or ((R1 > 500) and (R2 > 1500) and (R3 > 1500) and (R4 > 500))) return 8;
+    if (((R1 > 1500) or ( R4 > 1500)) and ((R2 < 1000) or ( R3 < 1000)))  return 7;
     int wall_check = 0;
     int pass_check = 0;
     if (R1 < 1000)wall_check++;
@@ -339,10 +342,6 @@ int object_type(int R1, int R2, int R3, int R4, int Angle_nakl) { //Функци
       if (R3 < 1000) wall_check++;
        if (R4 < 1000) wall_check++;
        if (wall_check >= 3) return 10;
-    //if ((R1 < dt_range) && (R4 < dt_range) && (R3 > dist_coef * max(R1, R4)))
-    if ((((R1 < 1000) or ( R4 < 1000)) and ((R2 > 1500) or (R3 > 1500))) or ((R1 > 500) and (R2 > 1500) and (R3 > 1500) and (R4 > 500))) return 7;
-    if (((R1 > 1500) or ( R4 > 1500)) and ((R2 < 1000) or ( R3 < 1000)))  return 8;
-    
     return 10;
     /*if (((R3 - R1) > 1000) && ((R3 - R4) > 1000) && ( max(R1, R4) < dt_range ))
       return 0;   // % 0(10) - сквозной проход (дверь окно и т.д.) сигналимзируем как чистое пространство
