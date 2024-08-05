@@ -477,7 +477,7 @@ void device_control() {//Функция логики работы для раз�
   else if (v.Ob_t == 3) {
     Serial.println("снизу");// Говорим аудио
     play_note(v.Ob_t );
-    vibration_panic();
+    vibration_panic2();
     //vibration_mode(8);
   }
   else if (v.Ob_t == 4) {
@@ -837,6 +837,6 @@ int bottom_detection_1 () // детекция под ногами
   Serial.print("  ");
   Serial.print(R_3);
   Serial.print("  ");*/
-  if (R_3 > 1200)return 1;
+  if (R_3 > 1300)return 1;
   return 0;
 }
