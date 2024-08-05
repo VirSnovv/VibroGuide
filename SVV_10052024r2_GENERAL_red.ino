@@ -18,15 +18,14 @@ int button_pin = 8; // pin кнопки
 int sleep_time = 60000; // время ухода в сон в мс. (минуты * 60000)
 
 //////////////////////////////
-int hole_detec_1[50];
-int hole_detec_2[50];
-int maxDelta, R1, R2, R3, R4, last_Obj = 0, new_Obj = 0, proof = 0, last_note, wait = 2000, dt_range = 1500;
+int hole_detec_1[10];
+int maxDelta, R1, R2, R3, R4, last_Obj = 0, new_Obj = 0, proof = 0, last_note, wait = 2000, dt_range = 1500,step_1 = 0, coef_det,R_3;
 /////////////////////////////////
 
 MPU6050 accgyro;
 int16_t ax, ay, az, gx, gy, gz;
 float accz, gyrox, anglez, anglez1, angley, angley1, anglex, anglex1; //переменные гироскопа
-float filtr_coef = 0.1, dist_coef = 0;
+float filtr_coef = 0.1, dist_coef = 0,image_r;
 
 /////////////////////////////////
 
@@ -49,7 +48,7 @@ int valid_cor[4] = { 4000, 4000, 4000, 4000 };
 int true_range[3] = { 0, 0, 0};
 int memR[4] = { 4000, 4000, 4000, 4000 };
 int count;
-int delta, last_timer = 0, range;
+int delta, last_timer = 0, range,timer_PANIC2;
 #define NUM_READ 3  // порядок медианы
 
 /////////////////////////////////
@@ -169,7 +168,7 @@ void int_DFP() { //Функция инициализации DFPlayer.
   }
   Serial.println(F("DFPlayer Mini online."));
 
-  myDFPlayer.volume(30);  //Set volume value. From 0 to 30
+  myDFPlayer.volume(22);  //Set volume value. From 0 to 30
   myDFPlayer.EQ(DFPLAYER_EQ_NORMAL);
   myDFPlayer.outputDevice(DFPLAYER_DEVICE_SD);
   myDFPlayer.play(8);  //0008 ассистент готов к работе, для начала использования нажмите кнопку сзади
@@ -308,12 +307,14 @@ int object_type(int R1, int R2, int R3, int R4, int Angle_nakl) { //Функци
   // % 4 - сверху
   // % 5 - яма
   // % 6 - очень близко
-  // %готов
-  // %готов
+  // % 7 - проход сбоку
+  // % 8 - проход по центру
   // % 9 - неверный угол
+  // % 10 - чисто прохода нету
   int type = 0; //по умолчанию считаем что нет препядсвия
   int mode = mode_switch();
   if (mode == 0) {
+    if(bottom_detection_1())return 5; // % 5 - яма
     //int type = 0;  //по умолчанию считаем что нет препядсвия
     if (v.minR < 500 )
       return 6;   // % 6 - очень близко
@@ -321,27 +322,28 @@ int object_type(int R1, int R2, int R3, int R4, int Angle_nakl) { //Функци
       return 9;  // % 9 - неверный угол
     if ((max(max(abs(R1 - R2), abs(R2 - R3)), max(abs(R1 - R2), abs(R1 - R4))) < 500) && (R2 < 1500)) //int maxDelta = max(max(abs(R1 - R2), abs(R2 - R3)), abs(R3 - R4))
       return 1;  // % 1 - стена
-    if (((R4 < 1000) || (R3 < 1000)) && ((R1 > R3) || (R1 > R4)))
+    if (((R4 < 1200) || (R3 < 1200)) && ((R1 > R3) || (R1 > R4)))
       return 3;  // % 3 - снизу
     if (R1 < 1000)
       return 4;  // % 4 - сверху
-    if ((R4 > 2300) && (R4 != 4000))
-      return 5;  // % 5 - яма
     if (R2 < 1300)
       return  2;  // % 2 - по курсу
   }
   else {
+      if (R3>1000)  return 7;
+      if (R2>1000)  return 7;
+      return 10;
     //dist_coef = 11 - 0.006 * max(R1, R4) ;
     //if ((R1 < dt_range) && (R4 < dt_range) && (R3 > dist_coef * max(R1, R4)))
-    if ((((R1 < 1000) or ( R4 < 1000)) and ((R2 > 1500) or (R3 > 1500))) or ((R1 > 500) and (R2 > 1500) and (R3 > 1500) and (R4 > 500))) return 8;
+    /*if ((((R1 < 1000) or ( R4 < 1000)) and ((R2 > 1500) or (R3 > 1500))) or ((R1 > 500) and (R2 > 1500) and (R3 > 1500) and (R4 > 500))) return 8;
     if (((R1 > 1500) or ( R4 > 1500)) and ((R2 < 1000) or ( R3 < 1000)))  return 7;
     int wall_check = 0;
     int pass_check = 0;
-    if (R1 < 1000)wall_check++;
-     if (R2 < 1000) wall_check++;
-      if (R3 < 1000) wall_check++;
-       if (R4 < 1000) wall_check++;
-       if (wall_check >= 3) return 10;
+    if (R1 < 1000) wall_check++;
+    if (R2 < 1000) wall_check++;
+    if (R3 < 1000) wall_check++;
+    if (R4 < 1000) wall_check++;
+    if (wall_check >= 3) return 10;
     return 10;
     /*if (((R3 - R1) > 1000) && ((R3 - R4) > 1000) && ( max(R1, R4) < dt_range ))
       return 0;   // % 0(10) - сквозной проход (дверь окно и т.д.) сигналимзируем как чистое пространство
@@ -384,9 +386,9 @@ void all_sensor_data_write_sruct_dev() {//Функция сбора показа
       count = 0;
     }
 
-    Serial.print(delta);
-    Serial.print("   ");
-    Serial.println(true_range[i]);
+    //Serial.print(delta);
+    //Serial.print("   ");
+    //Serial.println(true_range[i]);
     delta = millis() - last_timer;
 
 
@@ -430,7 +432,7 @@ void vibration(int Amp_10_235, int tau_ms,  int T ) {//Функция реали
 }
 void vibration_panic()
 { //функция для оповещения об измении сит
-  if (millis() - timer_PANIC > 1000) //дрыгаем раз в 5 сек
+  if (millis() - timer_PANIC > 5000) //дрыгаем раз в 5 сек
   {
     for (int i = 0; i < 3; i++) {
       analogWrite(3, 250);
@@ -443,6 +445,20 @@ void vibration_panic()
 
 }
 
+void vibration_panic2()
+{ //функция для оповещения об измении сит
+  //if (millis() - timer_PANIC2 > 200) //дрыгаем раз в 5 сек
+  //{
+    //for (int i = 0; i < 1; i++) {
+      analogWrite(3, 254);
+      delay(60);
+      analogWrite(3, 0);
+      delay(40);
+    //}
+  //  timer_PANIC = millis();
+  //}
+
+}
 void device_control() {//Функция логики работы для разных препятствий.
   //функция управления устройством
   // % 0 - чисто
@@ -473,7 +489,7 @@ void device_control() {//Функция логики работы для раз�
   else if (v.Ob_t == 5) {
     Serial.println("яма");// Говорим аудио
     play_note(v.Ob_t );
-    vibration_panic();
+    vibration_panic2();
     // vibration_mode(8);
   }
   else if (v.Ob_t == 6) {
@@ -483,23 +499,23 @@ void device_control() {//Функция логики работы для раз�
     return;
   }
   else if (v.Ob_t == 7) {
-    Serial.println("проход");// Говорим аудио
+    Serial.println("проход сбоку");// Говорим аудио
     //play_note(11);
-    vibration_panic();
+    vibration_panic2();
     return;
   }
   else if (v.Ob_t == 8) {
-    Serial.println("проход сбоку");// Говорим аудио
+    Serial.println("проход");// Говорим аудио
     //play_note(11);
-    vibration(250, 150, 300);
+    vibration(0, 150, 300);
     return;
   }
   else if (v.Ob_t == 9) {
     Serial.println("неверный угол");// Говорим аудио
-    if (millis() - timer_angl_error > 10000) {
+    /*if (millis() - timer_angl_error > 10000) {
       play_note(v.Ob_t );
       timer_angl_error = millis();
-    }
+    }*/
     vibration_panic();
   }
   else if (v.Ob_t == 10) {
@@ -534,6 +550,8 @@ void print_range(int R1, int R2, int R3, int R4, int object_type ) { //диаг�
   Serial.print(' ');
   Serial.print("object_type:");
   Serial.print(object_type * 1000);
+  Serial.print("  ");
+  Serial.print(R_3);
   Serial.print(' ');/**/
   Serial.print("angle X:");
   Serial.print(v.AngleX);
@@ -781,12 +799,14 @@ int mode_switch() {
   if ((v.AngleZ < (-80)) || (v.AngleZ > 50)) {
     if (sw == 0) {
       sw = 1;
-      play_note(11);
+      if (digitalRead(button_pin))//Типичный пример говно кода когда все не из одного места делается, а через одно место!!!
+        play_note(11);
     }
     return 1;
   }
   if (sw == 1) {
     sw = 0;
+    if (digitalRead(button_pin))//Типичный пример говно кода когда все не из одного места делается, а через одно место!!!
     play_note(10);
   }
   return 0;
@@ -805,4 +825,18 @@ void device_sleep() {
 }
 void isr() {
   // пустая функция для пробуждения
+}
+int bottom_detection_1 () // детекция под ногами
+{ 
+  image_r = v.R[3] * cos(((41-v.AngleY)*3.14)/180); 
+  if ((image_r - R_3) > 0.2*R_3) int coef_det = 0.1;
+  if ((image_r - R_3) < 0.2*R_3) int coef_det = 0.9;
+  R_3 =  R_3 * coef_det + image_r * (1 - coef_det);
+  /*Serial.println();
+  Serial.print(image_r);
+  Serial.print("  ");
+  Serial.print(R_3);
+  Serial.print("  ");*/
+  if (R_3 > 1200)return 1;
+  return 0;
 }
