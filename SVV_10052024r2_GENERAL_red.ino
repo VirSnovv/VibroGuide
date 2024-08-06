@@ -19,13 +19,13 @@ int sleep_time = 60000; // время ухода в сон в мс. (минут�
 
 //////////////////////////////
 int hole_detec_1[10];
-int maxDelta, R1, R2, R3, R4, last_Obj = 0, new_Obj = 0, proof = 0, last_note, wait = 2000, dt_range = 1500,step_1 = 0, coef_det,R_3;
+int maxDelta, last_Obj = 0, new_Obj = 0, proof = 0, last_note, wait = 2000, dt_range = 1500, step_1 = 0, coef_det, R_4;
 /////////////////////////////////
 
 MPU6050 accgyro;
 int16_t ax, ay, az, gx, gy, gz;
 float accz, gyrox, anglez, anglez1, angley, angley1, anglex, anglex1; //переменные гироскопа
-float filtr_coef = 0.1, dist_coef = 0,image_r;
+float filtr_coef = 0.1, dist_coef = 0, image_r;
 
 /////////////////////////////////
 
@@ -48,7 +48,7 @@ int valid_cor[4] = { 4000, 4000, 4000, 4000 };
 int true_range[3] = { 0, 0, 0};
 int memR[4] = { 4000, 4000, 4000, 4000 };
 int count;
-int delta, last_timer = 0, range,timer_PANIC2;
+int delta, last_timer = 0, range, timer_PANIC2;
 #define NUM_READ 3  // порядок медианы
 
 /////////////////////////////////
@@ -204,11 +204,6 @@ void gyro_data(float coef) { // обновление данных с гирос�
 
 
 }
-void ToF_data() { //обновление данных с ToF датчиков.(Не используется в коде)
-  R1 = sensors[1].read();
-  R3 = sensors[0].read();
-  R4 = sensors[0].read();
-}
 void ultasound_data() {
   ;//Обновление данных с RCWL1005.
 }
@@ -274,7 +269,8 @@ void l2c_address() { //Функция проверки адресов по ши�
 void play_note( int note ) { //Функция проигрывания сообщения.
   /*if(note == 13){
     isPlaying = false;}
-    else if(millis() - timer[0]>1600){*/
+    else if(millis() - timer[0]>1600){*/\
+  if (digitalRead(button_pin)){
   if ((millis() - timer[0] > 2000) && last_note == note) {
     myDFPlayer.play(note);
     //isPlaying = true;
@@ -290,7 +286,7 @@ void play_note( int note ) { //Функция проигрывания сооб�
   if (myDFPlayer.available()) {
     printDetail(myDFPlayer.readType(), myDFPlayer.read()); //Print the detail message from DFPlayer to handle different errors and states.
   }
-
+  }
   /*isPlaying = true;
     timer[0] = millis();
     }*/
@@ -314,15 +310,15 @@ int object_type(int R1, int R2, int R3, int R4, int Angle_nakl) { //Функци
   int type = 0; //по умолчанию считаем что нет препядсвия
   int mode = mode_switch();
   if (mode == 0) {
-    if(bottom_detection_1())return 5; // % 5 - яма
+    if (bottom_detection_1())return 5; // % 5 - яма
     //int type = 0;  //по умолчанию считаем что нет препядсвия
     if (v.minR < 500 )
       return 6;   // % 6 - очень близко
     if ( (abs(v.AngleY) > 35 ) || (abs(v.AngleZ) > 35 ) )
       return 9;  // % 9 - неверный угол
-    if ((max(max(abs(R1 - R2), abs(R2 - R3)), max(abs(R1 - R2), abs(R1 - R4))) < 500) && (R2 < 1500)) //int maxDelta = max(max(abs(R1 - R2), abs(R2 - R3)), abs(R3 - R4))
+    if (wall_detection(R1, R2, R3, R4))
       return 1;  // % 1 - стена
-    if (((R4 < 1200) || (R3 < 1200)) && ((R1 > R3) || (R1 > R4)))
+    if (lower_obstacle(R1, R2, R3, R4))
       return 3;  // % 3 - снизу
     if (R1 < 1000)
       return 4;  // % 4 - сверху
@@ -330,26 +326,26 @@ int object_type(int R1, int R2, int R3, int R4, int Angle_nakl) { //Функци
       return  2;  // % 2 - по курсу
   }
   else {
-      if (R3>1000)  return 7;
-      if (R2>1000)  return 7;
-      return 10;
+    if (R3 > 1000)  return 7;
+    if (R2 > 1000)  return 7;
+    return 10;
     //dist_coef = 11 - 0.006 * max(R1, R4) ;
     //if ((R1 < dt_range) && (R4 < dt_range) && (R3 > dist_coef * max(R1, R4)))
     /*if ((((R1 < 1000) or ( R4 < 1000)) and ((R2 > 1500) or (R3 > 1500))) or ((R1 > 500) and (R2 > 1500) and (R3 > 1500) and (R4 > 500))) return 8;
-    if (((R1 > 1500) or ( R4 > 1500)) and ((R2 < 1000) or ( R3 < 1000)))  return 7;
-    int wall_check = 0;
-    int pass_check = 0;
-    if (R1 < 1000) wall_check++;
-    if (R2 < 1000) wall_check++;
-    if (R3 < 1000) wall_check++;
-    if (R4 < 1000) wall_check++;
-    if (wall_check >= 3) return 10;
-    return 10;
-    /*if (((R3 - R1) > 1000) && ((R3 - R4) > 1000) && ( max(R1, R4) < dt_range ))
+      if (((R1 > 1500) or ( R4 > 1500)) and ((R2 < 1000) or ( R3 < 1000)))  return 7;
+      int wall_check = 0;
+      int pass_check = 0;
+      if (R1 < 1000) wall_check++;
+      if (R2 < 1000) wall_check++;
+      if (R3 < 1000) wall_check++;
+      if (R4 < 1000) wall_check++;
+      if (wall_check >= 3) return 10;
+      return 10;
+      /*if (((R3 - R1) > 1000) && ((R3 - R4) > 1000) && ( max(R1, R4) < dt_range ))
       return 0;   // % 0(10) - сквозной проход (дверь окно и т.д.) сигналимзируем как чистое пространство
-    if ((R1 < dt_range) && (R3 < dt_range) && (R4 < dt_range))
+      if ((R1 < dt_range) && (R3 < dt_range) && (R4 < dt_range))
       return 6;  // % 6 (11) - прохода строго нет. индикация как крайне близкое препятствие
-    if ((R3 < dt_range) && ((R3 > dt_range) || (R4 > dt_range)))
+      if ((R3 < dt_range) && ((R3 > dt_range) || (R4 > dt_range)))
       return 12;  // % 12 - проход скраю зоны видимости */
 
   }
@@ -449,12 +445,12 @@ void vibration_panic2()
 { //функция для оповещения об измении сит
   //if (millis() - timer_PANIC2 > 200) //дрыгаем раз в 5 сек
   //{
-    //for (int i = 0; i < 1; i++) {
-      analogWrite(3, 254);
-      delay(60);
-      analogWrite(3, 0);
-      delay(40);
-    //}
+  //for (int i = 0; i < 1; i++) {
+  analogWrite(3, 254);
+  delay(60);
+  analogWrite(3, 0);
+  delay(40);
+  //}
   //  timer_PANIC = millis();
   //}
 
@@ -515,7 +511,7 @@ void device_control() {//Функция логики работы для раз�
     /*if (millis() - timer_angl_error > 10000) {
       play_note(v.Ob_t );
       timer_angl_error = millis();
-    }*/
+      }*/
     vibration_panic();
   }
   else if (v.Ob_t == 10) {
@@ -551,7 +547,7 @@ void print_range(int R1, int R2, int R3, int R4, int object_type ) { //диаг�
   Serial.print("object_type:");
   Serial.print(object_type * 1000);
   Serial.print("  ");
-  Serial.print(R_3);
+  Serial.print(R_4);
   Serial.print(' ');/**/
   Serial.print("angle X:");
   Serial.print(v.AngleX);
@@ -566,7 +562,7 @@ void print_range(int R1, int R2, int R3, int R4, int object_type ) { //диаг�
     Serial.print(analogRead(A6)*0.0049);//A6*0.0049= напряжение на аккуме*/
   Serial.println();
 }
-void printDetail(uint8_t type, int value) {
+void printDetail(uint8_t type, int value) { // вывод отладочных данных
   switch (type) {
     case TimeOut:
       Serial.println(F("Time Out!"));
@@ -628,6 +624,34 @@ void printDetail(uint8_t type, int value) {
 }
 int findMedianN_optim(int newVal, int sensNum) {//Функция медианного фильтра.
   int out;
+  /*for(int i=0;i<4;i++){
+    if (sensNum == i){
+    static int buffer1[3*NUM_READ];  // статический буфер
+    static byte count = i*3;
+    buffer1[count] = newVal;
+    if ((count < NUM_READ - 1) and (buffer1[count] > buffer1[count + 1])) {
+      for (int i = count; i < NUM_READ - 1; i++) {
+        if (buffer1[i] > buffer1[i + 1]) {
+          int buff = buffer1[i];
+          buffer1[i] = buffer1[i + 1];
+          buffer1[i + 1] = buff;
+        }
+      }
+    } else {
+      if ((count > 0) and (buffer1[count - 1] > buffer1[count])) {
+        for (int i = count; i > 0; i--) {
+          if (buffer1[i] < buffer1[i - 1]) {
+            int buff = buffer1[i];
+            buffer1[i] = buffer1[i - 1];
+            buffer1[i - 1] = buff;
+          }
+        }
+      }
+    }
+    if (++count >= NUM_READ) count = 0;
+    out = buffer1[(int)NUM_READ / 2];
+    }
+    }*/
   if (sensNum == 0) {
     static int buffer1[NUM_READ];  // статический буфер
     static byte count = 0;
@@ -738,8 +762,7 @@ int findMedianN_optim(int newVal, int sensNum) {//Функция медианн�
 
   return out;
 }
-void button_state() {
-  ///////////// Вход в алгоритм нажатия кнопок и выбора режима //////////////
+void button_state() {//алгоритм нажатия кнопок и выбора режима
   boolean reading = digitalRead(button_pin);
   // проверка первичного нажатия
   if (reading && !lastReading) {
@@ -770,12 +793,12 @@ void button_state() {
     isButtonMulti(o);
   }
 }
-void isButtonSingle() {
+void isButtonSingle() {// реакция на единичное нажатие кнопки
   buttonMulti = false;
   buttonSingle = false;
   //Serial.println(1);
 }
-void isButtonMulti( int count ) {
+void isButtonMulti( int count ) {// реакция на многократное нажатие кнопки
   buttonSingle = false;
   buttonMulti = false;
   //Serial.println(count);
@@ -795,18 +818,16 @@ void isButtonMulti( int count ) {
     myDFPlayer.volume(10);
   }
 }
-int mode_switch() {
-  if ((v.AngleZ < (-80)) || (v.AngleZ > 50)) {
-    if (sw == 0) {
+int mode_switch() {//переключение между вертикальнымм и горизонтальным режимом
+  if ((v.AngleZ < (-80)) || (v.AngleZ > 50)) { // переключение режима при изменение положения устройства.
+    if (sw == 0) { // тригер для
       sw = 1;
-      if (digitalRead(button_pin))//Типичный пример говно кода когда все не из одного места делается, а через одно место!!!
-        play_note(11);
+      play_note(11);
     }
     return 1;
   }
   if (sw == 1) {
     sw = 0;
-    if (digitalRead(button_pin))//Типичный пример говно кода когда все не из одного места делается, а через одно место!!!
     play_note(10);
   }
   return 0;
@@ -826,17 +847,30 @@ void device_sleep() {
 void isr() {
   // пустая функция для пробуждения
 }
-int bottom_detection_1 () // детекция под ногами
-{ 
-  image_r = v.R[3] * cos(((41-v.AngleY)*3.14)/180); 
-  if ((image_r - R_3) > 0.2*R_3) int coef_det = 0.1;
-  if ((image_r - R_3) < 0.2*R_3) int coef_det = 0.9;
-  R_3 =  R_3 * coef_det + image_r * (1 - coef_det);
+int bottom_detection_1 () // детекция под ногами, возвращает 1 при обнаружение препятствия типа яма или препятствия с низким отражением сигнала от датчика, иначе 0.
+{
+  if (v.AngleY < 0)return 0;
+  image_r = v.R[3] * sin(((41 + v.AngleY) * 3.14) / 180); //расчет высоты до поверхности в зависимости от наклона устройства
+  if ((image_r - R_4) > 0.2 * R_4) coef_det = 0.1; // изменение коэффиента бегущего среднего(рост влияния нового значения)при скачке дальности более 20% от высоты
+  if ((image_r - R_4) < 0.2 * R_4) coef_det = 0.9; // изменение коэффиента бегущего среднего(уменьшения влияния нового значения)при скачке дальности менее 20% от высоты
+  R_4 =  R_4 * coef_det + image_r * (1 - coef_det); // бегущее среднее для компенсации не критичных коллебаний высоты до земли и увеличения окна обнаружения при единичном нахождения ямы
   /*Serial.println();
-  Serial.print(image_r);
-  Serial.print("  ");
-  Serial.print(R_3);
-  Serial.print("  ");*/
-  if (R_3 > 1300)return 1;
+    Serial.print(image_r);
+    Serial.print("  ");
+    Serial.print(R_3);
+    Serial.print("  ");*/
+  if (R_4 > 1150)return 1; //порог обнаружения ямы (также срабатывает на препятствие под ногами с поверхностью с низким отражением.
   return 0;
+}
+int wall_detection(int R1, int R2, int R3, int R4)//детекция стены
+{
+  if ((max(max(abs(R1 - R2), abs(R2 - R3)), max(abs(R1 - R2), abs(R1 - R4))) < 500) && (R2 < 1500)) //int maxDelta = max(max(abs(R1 - R2), abs(R2 - R3)), abs(R3 - R4))
+    return 1;  // % 1 - стена
+    return 0;
+}
+int lower_obstacle(int R1, int R2, int R3, int R4)//детекция препятсвия под ногами
+{
+  if (((R4 < 1200) || (R3 < 1200)) && ((R1 > R3) || (R1 > R4)))
+    return 1;  // % 3 - снизу
+    return 0;
 }
