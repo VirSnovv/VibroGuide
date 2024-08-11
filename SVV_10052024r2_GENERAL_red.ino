@@ -1,135 +1,186 @@
 #include <Wire.h>
 #include <VL53L1X.h>
 #include <SoftwareSerial.h>
-#include "DFRobotDFPlayerMini.h" //https://texttospeech.ru/
+#include "DFRobotDFPlayerMini.h"  //https://texttospeech.ru/
 #include "MPU6050.h"
 #include "NewPing.h"
-#include <GyverPower.h>
+//#include <GyverPower.h>
 
-/////////////////////////////////
+//////////////////////////////DEFINE\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 
+#define motor_pin 5    // пин с ШИМ для управления вибромотором
+#define motor_max 240  // максимальное значение ШИМ для мотора
+#define motor_min 5    // минимальное значение ШИМ для мотора 
+#define motor_coef 50 //значение коэффициента от 0 до 100
+//#define button_pin 8
+#define button_pin 3
+#define int_gyro_pin 17  // пин для int порта гироскопа. (может отсутствовать так как на практике не нужен(если не подключен к порту задать 99). На референсных схемах висит в воздухе)
+
+#define ToF_pin_1 6   // пин shut ToF датчика 1
+#define ToF_pin_2 15  // пин shut ToF датчика 2
+//#define ToF_pin_3 7 // пин shut ToF датчика 3
+#define ToF_pin_3 14  // пин shut ToF датчика 3
+
+//#define usound_trigger_pin 10 // Триггер пин ультразвукового датчика может быть тем же что Эхо пин если контакты подключенны к 1 проводу
+#define usound_trigger_pin 9  // Триггер пин ультразвукового датчика может быть тем же что Эхо пин если контакты подключенны к 1 проводу
+#define usound_echo_pin 10    //  Эхо пин ультразвукового датчика может быть тем же что Триггер пин если контакты подключенны к 1 проводу
+
+//#define serial_rx_pin 9 // пин RX для програмного сериал порта. Подключается в TX порт DFPlayer
+#define serial_rx_pin 4  // пин RX для програмного сериал порта. Подключается в TX порт DFPlayer
+//#define serial_tx_pin 5 // пин ЕX для програмного сериал порта. Подключается в RX порт DFPlayer
+#define serial_tx_pin 2  // пин ЕX для програмного сериал порта. Подключается в RX порт DFPlayer
+
+#define adc_pin A0  // пин АЦП ADC6 (pin 19)
+#define ppwr_en 7 // ключ питания датчиков
+#define nSTDBY_pin 16 // порт режима зарядки
+#define nCHRG_pin 8  // порт заряда аккумулятора
+////////////////////////////////////////////
+#define NUM_READ 3  // можно не менять количество отсчетов
+
+///////////////////////////// ПЕРЕМЕННЫЕ
 const uint8_t sensorCount = 3;  //количество сенсоров
-const uint8_t xshutPins[sensorCount] = { 6, 15, 14 };//ПРИ КАЖДОМ ИЗМЕНЕНИИ проверять раз 5!!!!!!!!!!!!!
-
+const uint8_t xshutPins[sensorCount] = { ToF_pin_1, ToF_pin_2, ToF_pin_3 };
 
 VL53L1X sensors[sensorCount];
-NewPing sonar(9, 10, 400); // NewPing setup of pin and maximum distance.
-int button_pin = 8; // pin кнопки
-int sleep_time = 60000; // время ухода в сон в мс. (минуты * 60000)
+NewPing sonar(usound_trigger_pin, usound_echo_pin, 400);  // NewPing setup of pin and maximum distance.
 
-//////////////////////////////
-int hole_detec_1[10];
-int maxDelta, last_Obj = 0, new_Obj = 0, proof = 0, last_note, wait = 2000, dt_range = 1500, step_1 = 0, coef_det, R_4;
+//int maxDelta, R1, R2, R3, R4, last_Obj = 0, new_Obj = 0, proof = 0, last_note, wait = 2000, dt_range = 1500;
 /////////////////////////////////
 
 MPU6050 accgyro;
 int16_t ax, ay, az, gx, gy, gz;
-float accz, gyrox, anglez, anglez1, angley, angley1, anglex, anglex1; //переменные гироскопа
-float filtr_coef = 0.1, dist_coef = 0, image_r;
+float accz, gyrox, anglez, anglez1, angley, angley1, anglex, anglex1;  //переменные гироскопа
+float filtr_coef = 0.1, dist_coef = 0;
 
 /////////////////////////////////
 
-boolean lastReading = false;  // флаг предыдущего состояния кнопки
-boolean buttonSingle = false; // флаг состояния "краткое нажатие"
-boolean buttonMulti = false; // флаг состояния "двойное нажатие"
+boolean lastReading = false;   // флаг предыдущего состояния кнопки
+boolean buttonSingle = false;  // флаг состояния "краткое нажатие"
+boolean buttonMulti = false;   // флаг состояния "двойное нажатие"
 bool flag = false, q = true, sw = false;
 
-int bounceTime = 10;          // задержка для подавления дребезга
-int doubleTime = 1000;         // время, в течение которого нажатия можно считать двойным
+int bounceTime = 10;    // задержка для подавления дребезга
+int doubleTime = 1000;  // время, в течение которого нажатия можно считать двойным
 int o = 0, mode = 1;
 
-long onTime = 0;              // переменная обработки временного интервала
-long lastSwitchTime = 0;      // переменная времени предыдущего переключения состояния
+long onTime = 0;          // переменная обработки временного интервала
+long lastSwitchTime = 0;  // переменная времени предыдущего переключения состояния
 
-unsigned long timer[5] = {1, 1, 1, 1, 1}; //таймеры
-unsigned long timer_PANIC = 1; //таймер для истиричной вибр раз в 5 сек
+unsigned long timer[5] = { 1, 1, 1, 1, 1 };  //таймеры
+unsigned long timer_PANIC = 1;               //таймер для истиричной вибр раз в 5 сек
 unsigned long timer_angl_error = 1;
 int valid_cor[4] = { 4000, 4000, 4000, 4000 };
-int true_range[3] = { 0, 0, 0};
+int true_range[3] = { 0, 0, 0 };
 int memR[4] = { 4000, 4000, 4000, 4000 };
+int verif[5] = { 0, 0, 0, 0 ,0};
+int verif_count = 0;
 int count;
 int delta, last_timer = 0, range, timer_PANIC2;
-#define NUM_READ 3  // порядок медианы
-
+int maxDelta, last_Obj = 0, new_Obj = 0, proof = 0, last_note, wait = 2000;
 /////////////////////////////////
 
-SoftwareSerial mySoftwareSerial(4, 5); // RX, TX для плеера DFPlayer Mini
+SoftwareSerial mySoftwareSerial(serial_rx_pin, serial_tx_pin);  // RX, TX для плеера DFPlayer Mini
 DFRobotDFPlayerMini myDFPlayer;
 boolean isPlaying = false;
 
 ////////////////////////////////
 
-struct vibr { //Структура для расстояния и углов для одного среза
-  int R[4] = {4000, 4000, 4000, 4000};
-  short int AngleX = 0, AngleY = 0, AngleZ = 0; //собираем углы
-  short int Ob_t = 0; //тип объекта
+struct vibr {  //Структура для расстояния и углов для одного среза
+  int R[4] = { 4000, 4000, 4000, 4000 };
+  int ErrR[4] = { 0, 0, 0, 0 };
+  short int AngleX = 0, AngleY = 0, AngleZ = 0;  //собираем углы
+  short int Ob_t = 0;                            //тип объекта
+  float Volt = 0;                                // напряжение с батареи
   // Функция для анализа ситуации и принятия решения об опасности
-  // % 0 - чисто
   // % 1 - стена
   // % 2 - по курсу
-  // % 3 - снизу говорим
-  // % 4 - сверху говорим
-  // % 5 - яма говорим
-  // % 6 - близко не говорим
-  // % 9 - неверный угол говорим
-  int minR = 0; //мин расстояние
-  int minR12 = 0; // мин расстояние с двух центральных датчиков т к иначе будет цеплять землю
+  // % 3 - снизу
+  // % 4 - сверху
+  // % 5 - яма
+  // % 6 - очень близко
+  // % 7 - проход есть
+  // % 8 - прохода нет
+  // % 9 - неверный угол
+  // % 10 - Готов к работе, нажмите кнопку сзади
+  // % 11 - Режим прохода
+  // % 12 - Базовый режим
+  // % 13 - Низкий уровень заряда
+  // % 14 - Батарея заряжена
+  // % 15 - Подключено зарядное устройство
+  // % 0 - чисто
+  int minR = 0;    //мин расстояние
+  int minR12 = 0;  // мин расстояние с двух центральных датчиков т к иначе будет цеплять землю
   unsigned long t_start_imp = 0;
   int i = 0;
 };
 vibr v;
-
-
+////////////////////////////////
+int R_PIT=0;//Значение для поиска ЯМЫ
+int R_HEAD=0;//Значение для поиска препятствия на уровне ГОЛОВЫ
+int pass_range = 1500;// порог сквозного прохода
+int error[3]={0,0,0};
 ////////////////////////////////
 void setup() {
   //pinMode(14, INPUT);
-  int_interfaces();// Функция инициализации интерфесов и информационных линий.
-  int_ToF();//Функция инициализации ToF датчиков.
+  //Serial.print("setup");
+  //Serial.print("int_interfaces");
+  int_interfaces();  // Функция инициализации интерфесов и информационных линий.
+  //Serial.print("int_ToF");
+  int_ToF();  //Функция инициализации ToF датчиков.
   delay(100);
-  int_DFP();//Функция инициализации DFPlayer.
-  power.setSleepMode(POWERDOWN_SLEEP);
+  //Serial.print("int_DFP()");
+  int_DFP();  //Функция инициализации DFPlayer.
+  //power.setSleepMode(POWERDOWN_SLEEP);
 }
 
 void loop() {
-  button_state();
-  //analogWrite(5, 255);//выключили вибрацию
-  gyro_data(filtr_coef); //Гироскоп
-  all_sensor_data_write_sruct_dev();//читаем все сенсоры
+  
+  button_state();//Состояние кнопки
+
+  gyro_data(filtr_coef);                                    //Гироскоп
+  all_sensor_data_write_sruct_dev();                        //читаем все сенсоры
   new_Obj = object_type(v.R[0], v.R[1], v.R[2], v.R[3], 0); //определяем тип объекта
-  if (new_Obj == last_Obj) { //верификация изменения объекта.
-    proof = proof + 1;
+  Serial.println(new_Obj);
+  verification_obj1();                                      //верификация обнаруженного объекта
+  if (digitalRead(button_pin)) {                            //если кнопка нажата
+    device_control();                                       //управляем устройством
+  } else {
+    analogWrite(motor_pin, 0);  //гасим вибромотор
   }
-  else {
-    proof = 0;
-  }
-  last_Obj = new_Obj;
-  if (proof >= 2) { // порог на котором считается что обстановка изменилась.
-    v.Ob_t = new_Obj;
-  }
-  if (digitalRead(button_pin)) { //если кнопка нажата
-    device_control(); //управляем устройством
-  }
-  else {
-    analogWrite(3, 0);//гасим вибромотор
-  }
-  print_range(v.R[0], v.R[1], v.R[2], v.R[3], v.Ob_t) ;
+  Serial.println(v.Ob_t);
+
+  print_range(v.R[0], v.R[1], v.R[2], v.R[3], v.Ob_t);
   //device_sleep();
 }
+void int_interfaces() {  // Функция инициализации интерфесов и информационных линий.
+  pinMode(adc_pin, INPUT);
+  //Serial.println("АЦП ИНИЦИАЛИЗИРОВАН");
 
-void int_interfaces() { // Функция инициализации интерфесов и информационных линий.
-  pinMode(3, OUTPUT); // ШИМ пин управления моторами
-  pinMode(button_pin, INPUT_PULLUP);
-  pinMode(17, OUTPUT);
-  digitalWrite(17, HIGH);
+  pinMode(ppwr_en, OUTPUT);
+  digitalWrite(ppwr_en, HIGH);
+  delay(200);
+  //Serial.println("Питание на датчики подано");
+
+  pinMode(motor_pin, OUTPUT);  // ШИМ пин управления моторами
+  pinMode(button_pin, INPUT);
+  pinMode(nSTDBY_pin, INPUT); // режим портов зарядки
+  pinMode(nCHRG_pin, INPUT); // режим портов зарядки
+  if (int_gyro_pin != 99) {
+    pinMode(int_gyro_pin, OUTPUT);
+    digitalWrite(int_gyro_pin, HIGH);
+  }
+  //Serial.println("ШИМ и гиро");
+
   Serial.begin(9600);
   mySoftwareSerial.begin(9600);
   Wire.begin();
   Wire.setClock(400000);  // use 400 kHz I2C
   delay(100);
   accgyro.initialize();
-}
 
-void int_ToF() { //Функция инициализации ToF датчиков.
+  Serial.println("Выход из void int_interfaces()");
+}
+void int_ToF() {  //Функция инициализации ToF датчиков.
   for (uint8_t i = 0; i < sensorCount; i++) {
     pinMode(xshutPins[i], OUTPUT);
     digitalWrite(xshutPins[i], LOW);
@@ -144,7 +195,8 @@ void int_ToF() { //Функция инициализации ToF датчико�
     if (!sensors[i].init()) {
       Serial.println("Failed to detect and initialize sensor ");
       Serial.println(i);
-      while (1);
+      while (1)
+        ;
     }
     // Адрес каждого датчика должен быть изменен на уникальное значение, отличное от
     // значения по умолчанию 0x29 (кроме последнего, который можно оставить по
@@ -156,8 +208,8 @@ void int_ToF() { //Функция инициализации ToF датчико�
     sensors[i].setDistanceMode(VL53L1X::Long);
   }
 }
-void int_DFP() { //Функция инициализации DFPlayer.
-  Serial.println();
+void int_DFP() {  //Функция инициализации DFPlayer.
+   Serial.println();
   Serial.println(F("DFRobot DFPlayer Mini Demo"));
   Serial.println(F("Initializing DFPlayer ... (May take 3~5 seconds)"));
 
@@ -168,16 +220,16 @@ void int_DFP() { //Функция инициализации DFPlayer.
   }
   Serial.println(F("DFPlayer Mini online."));
 
-  myDFPlayer.volume(22);  //Set volume value. From 0 to 30
+  myDFPlayer.volume(28);  //Set volume value. From 0 to 30
   myDFPlayer.EQ(DFPLAYER_EQ_NORMAL);
   myDFPlayer.outputDevice(DFPLAYER_DEVICE_SD);
-  myDFPlayer.play(8);  //0008 ассистент готов к работе, для начала использования нажмите кнопку сзади
+  myDFPlayer.play(10);  //0010 ассистент готов к работе, для начала использования нажмите кнопку сзади
   //isPlaying = true;
-  delay(4000);
+  delay(3500);
   for (int i = 0; i < 3; i++) {
-    analogWrite(3, 250);
+    analogWrite(motor_pin, motor_max);
     delay(100);
-    analogWrite(3, 0);
+    analogWrite(motor_pin, motor_min);
     delay(100);
   }
   /*for(int i=0;i<10;i++){
@@ -185,7 +237,7 @@ void int_DFP() { //Функция инициализации DFPlayer.
     delay(2000);
     }/**/
 }
-void gyro_data(float coef) { // обновление данных с гироскопа.
+void gyro_data(float coef) {  // обновление данных с гироскопа.
   accgyro.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
   //Serial.println(az);
 
@@ -200,162 +252,174 @@ void gyro_data(float coef) { // обновление данных с гирос�
 
   v.AngleX = anglex1;
   v.AngleY = angley1;
-  v.AngleZ = anglez1; //собираем углы
-
-
+  v.AngleZ = anglez1;  //собираем углы
 }
-void ultasound_data() {
-  ;//Обновление данных с RCWL1005.
-}
-void l2c_address() { //Функция проверки адресов по шине I2C.
-  int nDevices;
-  byte error, address;
+void play_note(int note) {  //Функция проигрывания сообщения.
 
-  Serial.println("Scanning I2C bus...\n");
-
-
-  nDevices = 0;
-
-  Serial.print("   00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F");
-
-
-  for (address = 0; address < 128; address++ )
-  {
-    if ((address % 0x10) == 0)
-    {
-      Serial.println();
-      if (address < 16)
-        Serial.print('0');
-      Serial.print(address, 16);
-      Serial.print(" ");
-    }
-    // The i2c_scanner uses the return value of
-    // the Write.endTransmisstion to see if
-    // a device did acknowledge to the address.
-    Wire.beginTransmission(address); error = Wire.endTransmission();
-
-
-    if (error == 0)
-    {
-      if (address < 16)
-        Serial.print("0");
-      Serial.print(address, HEX);
-
-      nDevices++;
-    }
-    else
-    {
-      Serial.print("--");
+  if (digitalRead(button_pin)) {
+    if ((millis() - timer[0] > 5000) && last_note == note) {
+      myDFPlayer.play(note);
+      //isPlaying = true;
+      Serial.println("ЗВУК");
+      timer[0] = millis();
+    } else if (last_note != note) {
+      myDFPlayer.play(note);
+      last_note = note;
+      timer[0] = millis();
     }
 
-    Serial.print(" ");
-    delay(1);
+    if (myDFPlayer.available()) {
+      printDetail(myDFPlayer.readType(), myDFPlayer.read());  //Print the detail message from DFPlayer to handle different errors and states.
+    }
   }
-  Serial.println();
-
-  if (nDevices == 0)
-    Serial.println("No I2C devices found\n");
-  else
-  {
-
-    Serial.print("Found ");
-    Serial.print(nDevices);
-    Serial.println(" device(s) ");
-  }
-
-  delay(2500);           // wait 5 seconds for next scan
-
 }
-void play_note( int note ) { //Функция проигрывания сообщения.
-  /*if(note == 13){
-    isPlaying = false;}
-    else if(millis() - timer[0]>1600){*/\
-  if (digitalRead(button_pin)){
-  if ((millis() - timer[0] > 2000) && last_note == note) {
-    myDFPlayer.play(note);
-    //isPlaying = true;
-    Serial.println("ЗВУК");
-    timer[0] = millis();
-  }
-  else if (last_note != note) {
-    myDFPlayer.play(note);
-    last_note = note;
-    timer[0] = millis();
-  }
-
-  if (myDFPlayer.available()) {
-    printDetail(myDFPlayer.readType(), myDFPlayer.read()); //Print the detail message from DFPlayer to handle different errors and states.
-  }
-  }
-  /*isPlaying = true;
-    timer[0] = millis();
-    }*/
-}
-
-
-
-int object_type(int R1, int R2, int R3, int R4, int Angle_nakl) { //Функция определения типа объекта.
+int object_type(int R1, int R2, int R3, int R4, int Angle_nakl) {  //Функция определения типа объекта.
   // Функция для анализа ситуации и принятия решения об опасности
-  // % 0 - чисто
-  // % 1 - стена
+// % 1 - стена
   // % 2 - по курсу
   // % 3 - снизу
   // % 4 - сверху
   // % 5 - яма
   // % 6 - очень близко
-  // % 7 - проход сбоку
-  // % 8 - проход по центру
+  // % 7 - проход есть
+  // % 8 - прохода нет
   // % 9 - неверный угол
-  // % 10 - чисто прохода нету
-  int type = 0; //по умолчанию считаем что нет препядсвия
+  // % 10 - Готов к работе, нажмите кнопку сзади
+  // % 11 - Режим прохода
+  // % 12 - Базовый режим
+  // % 13 - Низкий уровень заряда
+  // % 14 - Батарея заряжена
+  // % 15 - Подключено зарядное устройство
+  // % 0 - чисто
+  int type = 0;  //по умолчанию считаем что нет препядсвия
   int mode = mode_switch();
+
   if (mode == 0) {
-    if (bottom_detection_1())return 5; // % 5 - яма
     //int type = 0;  //по умолчанию считаем что нет препядсвия
-    if (v.minR < 500 )
-      return 6;   // % 6 - очень близко
-    if ( (abs(v.AngleY) > 35 ) || (abs(v.AngleZ) > 35 ) )
-      return 9;  // % 9 - неверный угол
-    if (wall_detection(R1, R2, R3, R4))
-      return 1;  // % 1 - стена
-    if (lower_obstacle(R1, R2, R3, R4))
+    if ((abs(v.AngleY) > 40) || (abs(v.AngleY) < -40))
+      return 9;                                                                                        // % 9 - неверный угол
+    if (v.minR < 500)
+      return 6;  // % 6 - очень близко
+    if ( pit_detection_1() )
+      return 5;  // % 5 - яма
+    if ((R4 < 1000) || ((R3 < 1700)&&((R1 > 2700)&&(R2 > 2700))))
       return 3;  // % 3 - снизу
-    if (R1 < 1000)
+    if ((max(max(abs(R1 - R2), abs(R2 - R3)), max(abs(R1 - R2), abs(R1 - R4))) < 700) && (R3 < 1400))  //int maxDelta = max(max(abs(R1 - R2), abs(R2 - R3)), abs(R3 - R4))
+      return 1;                                                                                        // % 1 - стена
+    if ( top_detection_1() )
       return 4;  // % 4 - сверху
     if (R2 < 1300)
-      return  2;  // % 2 - по курсу
-  }
-  else {
-    if (R3 > 1000)  return 7;
-    if (R2 > 1000)  return 7;
-    return 10;
-    //dist_coef = 11 - 0.006 * max(R1, R4) ;
-    //if ((R1 < dt_range) && (R4 < dt_range) && (R3 > dist_coef * max(R1, R4)))
-    /*if ((((R1 < 1000) or ( R4 < 1000)) and ((R2 > 1500) or (R3 > 1500))) or ((R1 > 500) and (R2 > 1500) and (R3 > 1500) and (R4 > 500))) return 8;
-      if (((R1 > 1500) or ( R4 > 1500)) and ((R2 < 1000) or ( R3 < 1000)))  return 7;
-      int wall_check = 0;
-      int pass_check = 0;
-      if (R1 < 1000) wall_check++;
-      if (R2 < 1000) wall_check++;
-      if (R3 < 1000) wall_check++;
-      if (R4 < 1000) wall_check++;
-      if (wall_check >= 3) return 10;
-      return 10;
-      /*if (((R3 - R1) > 1000) && ((R3 - R4) > 1000) && ( max(R1, R4) < dt_range ))
-      return 0;   // % 0(10) - сквозной проход (дверь окно и т.д.) сигналимзируем как чистое пространство
-      if ((R1 < dt_range) && (R3 < dt_range) && (R4 < dt_range))
-      return 6;  // % 6 (11) - прохода строго нет. индикация как крайне близкое препятствие
-      if ((R3 < dt_range) && ((R3 > dt_range) || (R4 > dt_range)))
-      return 12;  // % 12 - проход скраю зоны видимости */
-
+      return 2;  // % 2 - по курсу
+  } else {
+    if ((R3 > 1500)&& v.ErrR[2]!=7) return 7;//проход есть
+    return 8; //прохода нет
   }
 
   return type;
-
-
 }
+void device_control() {  //Функция логики работы для разных препятствий.
+  // Функция для анализа ситуации и принятия решения об опасности
+// % 1 - стена
+  // % 2 - по курсу
+  // % 3 - снизу
+  // % 4 - сверху
+  // % 5 - яма
+  // % 6 - очень близко
+  // % 7 - проход есть
+  // % 8 - прохода нет
+  // % 9 - неверный угол
+  // % 10 - Готов к работе, нажмите кнопку сзади
+  // % 11 - Режим прохода
+  // % 12 - Базовый режим
+  // % 13 - Низкий уровень заряда
+  // % 14 - Батарея заряжена
+  // % 15 - Подключено зарядное устройство
+  // % 0 - чисто
 
-void all_sensor_data_write_sruct_dev() {//Функция сбора показаний с датчиков и записи их в struct vibr.
+  if (v.Ob_t == 1) {
+    Serial.println("стена по курсу");  // не говорим аудио
+   play_note(v.Ob_t);
+  } else if (v.Ob_t == 3) {
+    Serial.println("снизу");  // Говорим аудио
+    //play_note(v.Ob_t);
+    vibration_panic();
+    //vibration_mode(8);
+  } else if (v.Ob_t == 4) {
+    Serial.println("сверху");  // Говорим аудио
+    play_note(v.Ob_t);
+    vibration_panic();
+    // vibration_mode(8);
+  } else if (v.Ob_t == 5) {
+    Serial.println("яма");  // Говорим аудио
+    //play_note(v.Ob_t);
+    vibration_panic();
+    // vibration_mode(8);
+  } else if (v.Ob_t == 6) {
+    Serial.println("близко");  // Говорим аудио
+    //play_note(11);
+    vibration_panic();
+    return;
+  } else if (v.Ob_t == 7) {
+    Serial.println("проход ");  // Говорим аудио
+    play_note(v.Ob_t);
+    vibration_panic2();
+    return;
+  } else if (v.Ob_t == 8) {
+    Serial.println("прохода нет");  // Говорим аудио
+    //play_note(v.Ob_t);
+    vibration(0, 150, 300);
+    return;
+  } else if (v.Ob_t == 9) {
+    Serial.println("неверный угол");  // Говорим аудио
+    /*if (millis() - timer_angl_error > 10000) {
+      play_note(v.Ob_t );
+      timer_angl_error = millis();
+    }*/
+    play_note(v.Ob_t);
+    vibration(200, 150, 300);
+  } 
+    else {
+    Serial.println("чисто");
+  }
+  vibration(map(v.minR12, 0, 4000, 250, 95), map(v.minR12, 0, 4000, 1200, 300), map(v.minR12, 0, 4000, 1200, 3000));
+  //vibration(map(v.minR12, 0, 4000, 90, 55), map(v.minR12, 0, 4000, 1200, 300),  1200) ;
+}
+int pit_detection_1()  // детекция под ногами, возвращает 1 при обнаружение препятствия типа яма или препятствия с низким отражением сигнала от датчика, иначе 0.
+{
+
+  int coef_det=0;
+  if (v.AngleY < -5) return 0;
+  int image_r_pit = v.R[3] * sin(((41 + v.AngleY) * 3.14) / 180);  //расчет высоты до поверхности в зависимости от наклона устройства
+  if ((image_r_pit - R_PIT) > 0.2 * R_PIT) coef_det = 0.1;         // изменение коэффиента бегущего среднего(рост влияния нового значения)при скачке дальности более 20% от высоты
+  if ((image_r_pit - R_PIT) <= 0.2 * R_PIT) coef_det = 0.9;         // изменение коэффиента бегущего среднего(уменьшения влияния нового значения)при скачке дальности менее 20% от высоты
+  R_PIT = R_PIT * coef_det + image_r_pit * (1 - coef_det);         // бегущее среднее для компенсации не критичных коллебаний высоты до земли и увеличения окна обнаружения при единичном нахождения ямы
+  //Serial.println(R_PIT);
+  if (R_PIT > 1500) return 1;                             //порог обнаружения ямы (также срабатывает на препятствие под ногами с поверхностью с низким отражением.
+
+  return 0;
+}
+int top_detection_1()  // детекция нависающего препятствия, возвращает 1 при обнаружение препятствия , иначе 0.
+{
+  
+  int coef_det=0;
+  if (v.AngleY > 10) return 0;
+  int image_r_head = v.R[0] * sin(((33 - v.AngleY) * 3.14) / 180);  //расчет высоты до поверхности в зависимости от наклона устройства
+  if (image_r_head < 1500) coef_det = 0.05;         // изменение коэффиента бегущего среднего(рост влияния нового значения)
+  if (image_r_head >= 1500) coef_det = 0.95;         // изменение коэффиента бегущего среднего(уменьшения влияния нового значения)
+  R_HEAD = R_HEAD * coef_det + image_r_head * (1 - coef_det);         // бегущее среднее для компенсации не критичных коллебаний высоты до земли и увеличения окна обнаружения при единичном нахождения верхнего препятствия
+  //Serial.println(R_HEAD);
+  if (R_HEAD < 700) return 1;                                //порог обнаружения нависающего (также срабатывает на препятствие под ногами с поверхностью с низким отражением.
+  return 0;
+}
+int pass_detection_1() // детекция прохода, возвращает 1 при обнаружение прохода , иначе 0.
+{
+
+  if ((v.R[2] > 1000)&&(v.R[3] > 1000)) return 1;
+  if ( ((v.R[2] < 1000)||(v.R[3] < 1000))&& ((v.R[1] > 1000)) ) return 2;
+  return 0;
+  
+}
+void all_sensor_data_write_sruct_dev() {  //Функция сбора показаний с датчиков и записи их в struct vibr.
   //Функция снятия данные с сенсоров
   //Опрашивает сначала УЗ потом ТОФ и возвращает в структуру 4 дальности R1,R2,R3,R4
   ///////////// Снятие замеров уз дальномера //////////////
@@ -363,42 +427,48 @@ void all_sensor_data_write_sruct_dev() {//Функция сбора показа
     timer[1] = millis();
     //valid_cor[3] = 10 * sonar.convert_cm(sonar.ping_median(3));
     valid_cor[3] = 10 * sonar.ping_cm();
-    if (valid_cor[3] < 1 )
+    if (valid_cor[3] < 1)
       valid_cor[3] = 4000;
   }
   ///////////// Снятие замеров TOF //////////////
   for (int i = 0; i < 3; i++) {  //читаем лазеры
     sensors[i].read();
     last_timer = millis();
-    range =  sensors[i].ranging_data.range_mm;
+    range = sensors[i].ranging_data.range_mm;
     if (range == 0) {
       count++;
       if (count > 20) {
         true_range[i] = 0;
       }
-    }
-    else {
+    } else {
       true_range[i] = range;
       count = 0;
     }
-
-    //Serial.print(delta);
-    //Serial.print("   ");
-    //Serial.println(true_range[i]);
-    delta = millis() - last_timer;
-
-
+    //short int j = i;
+    //if (i > 0) j= i +1;
+    //v.ErrR[j]=sensors[i].ranging_data.range_status;//Запоминаем значение ошибки
+    
+    
     if (sensors[i].ranging_data.range_status != 0) {
-      valid_cor[i] = 4000;  //sensors[i].ranging_data.range_mm+1000;//если низкий уровень сигнала возможно это темная поверхность добавляем 1000
+      valid_cor[i] = true_range[i];  //БЫЛО 4000  //sensors[i].ranging_data.range_mm+1000;//если низкий уровень сигнала возможно это темная поверхность добавляем 1000
     } else
       valid_cor[i] = true_range[i];
     memR[i] = valid_cor[i];
-    //valid_cor[i] = findMedianN_optim(valid_cor[i], i);
+
+    // Измерение Напряжения
+    v.Volt = (float)(analogRead(A0) * 5.0) / 1023.0;
   }
+
+  
   v.R[0] = valid_cor[0];
   v.R[1] = valid_cor[3];
   v.R[2] = valid_cor[2];
   v.R[3] = valid_cor[1];
+
+  v.ErrR[0]=sensors[0].ranging_data.range_status;
+  v.ErrR[2]=sensors[2].ranging_data.range_status;
+  v.ErrR[3]=sensors[1].ranging_data.range_status;
+  
   for (int i = 0; i < 4; i++) {
     v.R[i] = findMedianN_optim(v.R[i], i);
     if (v.R[i] > 4000) v.R[i] = 4000;
@@ -406,129 +476,43 @@ void all_sensor_data_write_sruct_dev() {//Функция сбора показа
 
   v.minR = min(min(v.R[0], v.R[1]), min(v.R[2], v.R[3]));
   v.minR12 = min(v.R[1], v.R[2]);
-
-
-
 }
-
-void vibration(int Amp_10_235, int tau_ms,  int T ) {//Функция реализации вибрации.
-  if ( (millis() - v.t_start_imp) <= tau_ms )
-  {
-    analogWrite(3, Amp_10_235);
-  }
-  else if ((millis() - v.t_start_imp) < T)
-  {
-    analogWrite(3, 0);
-  }
-  else
-  {
-    analogWrite(3, Amp_10_235);
+void vibration(int Amp_10_235, int tau_ms, int T) {  //Функция реализации вибрации.
+  Amp_10_235=Amp_10_235*motor_coef/100;
+  if ((millis() - v.t_start_imp) <= tau_ms) {
+    analogWrite(motor_pin, Amp_10_235);
+  } else if ((millis() - v.t_start_imp) < T) {
+    analogWrite(motor_pin, 0);
+  } else {
+    analogWrite(motor_pin, Amp_10_235);
     v.t_start_imp = millis();
   }
 }
-void vibration_panic()
-{ //функция для оповещения об измении сит
-  if (millis() - timer_PANIC > 5000) //дрыгаем раз в 5 сек
+void vibration_panic() {              //функция для оповещения об измении сит\
+  if (millis() - timer_PANIC > 3000)  //дрыгаем раз в 5 сек
   {
-    for (int i = 0; i < 3; i++) {
-      analogWrite(3, 250);
+    for (int i = 0; i < 1; i++) {
+      analogWrite(motor_pin, motor_max);
       delay(100);
-      analogWrite(3, 0);
+      analogWrite(motor_pin, motor_min);
       delay(100);
     }
     timer_PANIC = millis();
   }
-
 }
-
-void vibration_panic2()
-{ //функция для оповещения об измении сит
-  //if (millis() - timer_PANIC2 > 200) //дрыгаем раз в 5 сек
-  //{
-  //for (int i = 0; i < 1; i++) {
-  analogWrite(3, 254);
+void vibration_panic2() {  //функция для оповещения об измении сит
+                           //if (millis() - timer_PANIC2 > 200) //дрыгаем раз в 5 сек
+                           //{
+                           //for (int i = 0; i < 1; i++) {
+  analogWrite(motor_pin, 230);
   delay(60);
-  analogWrite(3, 0);
+  analogWrite(motor_pin, motor_min);
   delay(40);
   //}
   //  timer_PANIC = millis();
   //}
-
 }
-void device_control() {//Функция логики работы для разных препятствий.
-  //функция управления устройством
-  // % 0 - чисто
-  // % 1 - стена
-  // % 2 - по курсу
-  // % 3 - снизу
-  // % 4 - сверху
-  // % 5 - яма
-  // % 6 - очень близко
-  // % 9 - неверный угол
-
-  if (v.Ob_t == 1) {
-    Serial.println("стена по курсу");// не говорим аудио
-    play_note(v.Ob_t );
-  }
-  else if (v.Ob_t == 3) {
-    Serial.println("снизу");// Говорим аудио
-    play_note(v.Ob_t );
-    vibration_panic2();
-    //vibration_mode(8);
-  }
-  else if (v.Ob_t == 4) {
-    Serial.println("сверху");// Говорим аудио
-    play_note(v.Ob_t );
-    vibration_panic();
-    // vibration_mode(8);
-  }
-  else if (v.Ob_t == 5) {
-    Serial.println("яма");// Говорим аудио
-    play_note(v.Ob_t );
-    vibration_panic2();
-    // vibration_mode(8);
-  }
-  else if (v.Ob_t == 6) {
-    Serial.println("близко");// Говорим аудио
-    //play_note(11);
-    vibration(250, 150, 300);
-    return;
-  }
-  else if (v.Ob_t == 7) {
-    Serial.println("проход сбоку");// Говорим аудио
-    //play_note(11);
-    vibration_panic2();
-    return;
-  }
-  else if (v.Ob_t == 8) {
-    Serial.println("проход");// Говорим аудио
-    //play_note(11);
-    vibration(0, 150, 300);
-    return;
-  }
-  else if (v.Ob_t == 9) {
-    Serial.println("неверный угол");// Говорим аудио
-    /*if (millis() - timer_angl_error > 10000) {
-      play_note(v.Ob_t );
-      timer_angl_error = millis();
-      }*/
-    vibration_panic();
-  }
-  else if (v.Ob_t == 10) {
-    Serial.println("проход");// Говорим аудио
-    //play_note(11);
-    vibration(0, 150, 300);
-    return;
-  }
-  else {
-    Serial.println("чисто");
-  }
-  vibration(map(v.minR12, 0, 4000, 250, 95), map(v.minR12, 0, 4000, 1200, 300),  map(v.minR12, 0, 4000, 1200, 3000)) ;
-  //vibration(map(v.minR12, 0, 4000, 90, 55), map(v.minR12, 0, 4000, 1200, 300),  1200) ;
-
-
-}
-void print_range(int R1, int R2, int R3, int R4, int object_type ) { //диагностический вывод данных в дисплей порт.
+void print_range(int R1, int R2, int R3, int R4, int object_type) {  //диагностический вывод данных в дисплей порт.
   Serial.print("R1:");
   Serial.print(R1);
   Serial.print(' ');
@@ -539,16 +523,26 @@ void print_range(int R1, int R2, int R3, int R4, int object_type ) { //диаг�
   Serial.print(R3);
   Serial.print(' ');
   Serial.print("R4:");
-  Serial.print(R4);
+  Serial.print(R4);  
+  Serial.print(' ');
+  /*Serial.print(" Err1: ");
+  Serial.print(v.ErrR[0]);
+  Serial.print(' ');*/
+ /* Serial.print("Err3:");
+  Serial.print(' ');
+  Serial.print(v.ErrR[2]);
+  Serial.print(' ');
+  Serial.print("Err4:");
+  Serial.print(' ');
+  Serial.print(v.ErrR[3]);
+  Serial.print(' ');*/
   /*Serial.print(' ');
     Serial.print("maxDelta:");
     Serial.print(max( max(abs(R1-R2),abs(R2-R3)),abs(R3-R4) ) );*/
   Serial.print(' ');
   Serial.print("object_type:");
   Serial.print(object_type * 1000);
-  Serial.print("  ");
-  Serial.print(R_4);
-  Serial.print(' ');/**/
+  Serial.print(' '); 
   Serial.print("angle X:");
   Serial.print(v.AngleX);
   Serial.print(' ');
@@ -557,12 +551,13 @@ void print_range(int R1, int R2, int R3, int R4, int object_type ) { //диаг�
   Serial.print(' ');
   Serial.print("angle Z:");
   Serial.print(v.AngleZ);
+  Serial.print("Volt:");
+  Serial.print(v.Volt);
   //Serial.print(' ');
-  /*Serial.print("Akk:");
-    Serial.print(analogRead(A6)*0.0049);//A6*0.0049= напряжение на аккуме*/
+
   Serial.println();
 }
-void printDetail(uint8_t type, int value) { // вывод отладочных данных
+void printDetail(uint8_t type, int value) {
   switch (type) {
     case TimeOut:
       Serial.println(F("Time Out!"));
@@ -622,36 +617,8 @@ void printDetail(uint8_t type, int value) { // вывод отладочных �
       break;
   }
 }
-int findMedianN_optim(int newVal, int sensNum) {//Функция медианного фильтра.
+int findMedianN_optim(int newVal, int sensNum) {  //Функция медианного фильтра.
   int out;
-  /*for(int i=0;i<4;i++){
-    if (sensNum == i){
-    static int buffer1[3*NUM_READ];  // статический буфер
-    static byte count = i*3;
-    buffer1[count] = newVal;
-    if ((count < NUM_READ - 1) and (buffer1[count] > buffer1[count + 1])) {
-      for (int i = count; i < NUM_READ - 1; i++) {
-        if (buffer1[i] > buffer1[i + 1]) {
-          int buff = buffer1[i];
-          buffer1[i] = buffer1[i + 1];
-          buffer1[i + 1] = buff;
-        }
-      }
-    } else {
-      if ((count > 0) and (buffer1[count - 1] > buffer1[count])) {
-        for (int i = count; i > 0; i--) {
-          if (buffer1[i] < buffer1[i - 1]) {
-            int buff = buffer1[i];
-            buffer1[i] = buffer1[i - 1];
-            buffer1[i - 1] = buff;
-          }
-        }
-      }
-    }
-    if (++count >= NUM_READ) count = 0;
-    out = buffer1[(int)NUM_READ / 2];
-    }
-    }*/
   if (sensNum == 0) {
     static int buffer1[NUM_READ];  // статический буфер
     static byte count = 0;
@@ -762,7 +729,8 @@ int findMedianN_optim(int newVal, int sensNum) {//Функция медианн�
 
   return out;
 }
-void button_state() {//алгоритм нажатия кнопок и выбора режима
+void button_state() {
+  ///////////// Вход в алгоритм нажатия кнопок и выбора режима //////////////
   boolean reading = digitalRead(button_pin);
   // проверка первичного нажатия
   if (reading && !lastReading) {
@@ -793,12 +761,12 @@ void button_state() {//алгоритм нажатия кнопок и выбо�
     isButtonMulti(o);
   }
 }
-void isButtonSingle() {// реакция на единичное нажатие кнопки
+void isButtonSingle() {
   buttonMulti = false;
   buttonSingle = false;
   //Serial.println(1);
 }
-void isButtonMulti( int count ) {// реакция на многократное нажатие кнопки
+void isButtonMulti(int count) {
   buttonSingle = false;
   buttonMulti = false;
   //Serial.println(count);
@@ -810,29 +778,29 @@ void isButtonMulti( int count ) {// реакция на многократное
   }
   if (mode == 1) {
     myDFPlayer.volume(30);
-  }
-  else if (mode == 2) {
+  } else if (mode == 2) {
     myDFPlayer.volume(20);
-  }
-  else if (mode == 3) {
+  } else if (mode == 3) {
     myDFPlayer.volume(10);
   }
 }
-int mode_switch() {//переключение между вертикальнымм и горизонтальным режимом
-  if ((v.AngleZ < (-80)) || (v.AngleZ > 50)) { // переключение режима при изменение положения устройства.
-    if (sw == 0) { // тригер для
+int mode_switch() {
+  if ((v.AngleZ < (-80)) || (v.AngleZ > 50)) {
+    if (sw == 0) {
       sw = 1;
-      play_note(11);
+      if (digitalRead(button_pin))  
+        play_note(11);
     }
     return 1;
   }
   if (sw == 1) {
     sw = 0;
-    play_note(10);
+    if (digitalRead(button_pin))  
+      play_note(12);
   }
   return 0;
 }
-void device_sleep() {
+/*void device_sleep() {
 
   if (digitalRead(button_pin) == 0) {
     timer[4] = millis();
@@ -843,34 +811,55 @@ void device_sleep() {
     detachInterrupt(1);
   }
 
-}
+}*/
 void isr() {
   // пустая функция для пробуждения
 }
-int bottom_detection_1 () // детекция под ногами, возвращает 1 при обнаружение препятствия типа яма или препятствия с низким отражением сигнала от датчика, иначе 0.
-{
-  if (v.AngleY < 0)return 0;
-  image_r = v.R[3] * sin(((41 + v.AngleY) * 3.14) / 180); //расчет высоты до поверхности в зависимости от наклона устройства
-  if ((image_r - R_4) > 0.2 * R_4) coef_det = 0.1; // изменение коэффиента бегущего среднего(рост влияния нового значения)при скачке дальности более 20% от высоты
-  if ((image_r - R_4) < 0.2 * R_4) coef_det = 0.9; // изменение коэффиента бегущего среднего(уменьшения влияния нового значения)при скачке дальности менее 20% от высоты
-  R_4 =  R_4 * coef_det + image_r * (1 - coef_det); // бегущее среднее для компенсации не критичных коллебаний высоты до земли и увеличения окна обнаружения при единичном нахождения ямы
-  /*Serial.println();
-    Serial.print(image_r);
-    Serial.print("  ");
-    Serial.print(R_3);
-    Serial.print("  ");*/
-  if (R_4 > 1150)return 1; //порог обнаружения ямы (также срабатывает на препятствие под ногами с поверхностью с низким отражением.
-  return 0;
+void charge_control() {  //Функция контроля заряда аккумулятора.
+  if ((digitalRead(nSTDBY_pin) == 0)&(digitalRead(nCHRG_pin) == 0)) {
+    myDFPlayer.play(14); //Батарея заряжена
+
+    }
+       if ((digitalRead(nSTDBY_pin) == 1)&(digitalRead(nCHRG_pin) == 1)) {
+    myDFPlayer.play(13); //Низкий уровень заряда
+
+    }
+    if ((digitalRead(nSTDBY_pin) == 1)&(digitalRead(nCHRG_pin) == 0)) {
+    myDFPlayer.play(15); //  Подключено зарядное устройство
 }
-int wall_detection(int R1, int R2, int R3, int R4)//детекция стены
-{
-  if ((max(max(abs(R1 - R2), abs(R2 - R3)), max(abs(R1 - R2), abs(R1 - R4))) < 500) && (R2 < 1500)) //int maxDelta = max(max(abs(R1 - R2), abs(R2 - R3)), abs(R3 - R4))
-    return 1;  // % 1 - стена
-    return 0;
 }
-int lower_obstacle(int R1, int R2, int R3, int R4)//детекция препятсвия под ногами
-{
-  if (((R4 < 1200) || (R3 < 1200)) && ((R1 > R3) || (R1 > R4)))
-    return 1;  // % 3 - снизу
-    return 0;
+void verification_obj1(){  //НОВАЯ верификация изменения объекта. Функция проверки верности обнаружения объекта.
+    verif[verif_count] = new_Obj;
+    verif_count++;
+    if(verif_count >= 4) verif_count = 0;
+
+    for (int i=0;i<10;i++){
+      proof = 0;
+      if (new_Obj == 4) {// если угроза сверху и !абидиент лайт ниже определенного уровня! ориентируемся по 1 обнаружению "ветки"
+      v.Ob_t = 4;
+      break;
+      }
+      for (int j=0;j<5;j++){
+       if (verif[j] == i) proof++;
+      }
+      if (proof >= 3) { // порог на котором считается что обстановка изменилась.
+        v.Ob_t = i;//Определяем тип препядсвия
+        break;
+      }
+    }
+}
+void verification_obj2(){  //!!!СТАРАЯ верификация изменения объекта. Функция проверки верности обнаружения объекта.
+    if ((new_Obj == last_Obj)&&(new_Obj != 4)) {
+    proof = proof + 1;
+  }
+  else if (new_Obj == 4){
+    proof = 5;
+  }
+  else {
+    proof = 0;
+  }
+  last_Obj = new_Obj;
+  if (proof >= 3) { // порог на котором считается что обстановка изменилась.
+    v.Ob_t = new_Obj;//Определяем тип препядсвия
+  }
 }
